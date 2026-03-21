@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/auth";
 import { resolveBaseSlug } from "@/lib/slug";
+import { validatePostInput } from "@/lib/post-validation";
 
 function getString(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -15,6 +16,16 @@ function getString(formData: FormData, key: string) {
 function getNextStatus(formData: FormData) {
   const intent = getString(formData, "intent");
   return intent === "publish" ? PostStatus.PUBLISHED : PostStatus.DRAFT;
+}
+
+function getValidationErrorCode(title: string, slug: string, content: string) {
+  const errors = validatePostInput({ title, slug, content });
+
+  if (errors.title) return "title-required";
+  if (errors.content) return "content-required";
+  if (errors.slug) return "slug-invalid";
+
+  return null;
 }
 
 async function generateUniqueSlug(baseSlug: string, excludeId?: string) {
@@ -43,33 +54,47 @@ export async function createPostAction(formData: FormData) {
   const content = getString(formData, "content");
   const status = getNextStatus(formData);
 
-  if (!title || !content) {
-    throw new Error("El título y el contenido son obligatorios.");
+  const validationErrorCode = getValidationErrorCode(title, inputSlug, content);
+
+  if (validationErrorCode) {
+    redirect(`/admin/posts/new?error=${validationErrorCode}`);
   }
 
   const baseSlug = resolveBaseSlug(inputSlug, title);
 
   if (!baseSlug) {
-    throw new Error("No se pudo generar un slug válido.");
+    redirect("/admin/posts/new?error=slug-invalid");
   }
 
-  const slug = await generateUniqueSlug(baseSlug);
+  try {
+    const slug = await generateUniqueSlug(baseSlug);
 
-  const createdPost = await prisma.post.create({
-    data: {
-      title,
-      slug,
-      content,
-      status,
-      publishedAt: status === PostStatus.PUBLISHED ? new Date() : null,
-    },
-  });
+    const createdPost = await prisma.post.create({
+      data: {
+        title,
+        slug,
+        content,
+        status,
+        publishedAt: status === PostStatus.PUBLISHED ? new Date() : null,
+      },
+      select: {
+        id: true,
+        slug: true,
+      },
+    });
 
-  revalidatePath("/admin/posts");
-  revalidatePath("/posts");
-  revalidatePath(`/posts/${createdPost.slug}`);
+    revalidatePath("/admin/posts");
+    revalidatePath("/posts");
+    revalidatePath(`/posts/${createdPost.slug}`);
 
-  redirect("/admin/posts");
+    if (status === PostStatus.PUBLISHED) {
+      redirect("/admin/posts?status=created");
+    }
+
+    redirect(`/admin/posts/${createdPost.id}/edit?status=created`);
+  } catch {
+    redirect("/admin/posts/new?error=save-error");
+  }
 }
 
 export async function updatePostAction(postId: string, formData: FormData) {
@@ -77,10 +102,15 @@ export async function updatePostAction(postId: string, formData: FormData) {
 
   const existingPost = await prisma.post.findUnique({
     where: { id: postId },
+    select: {
+      id: true,
+      slug: true,
+      publishedAt: true,
+    },
   });
 
   if (!existingPost) {
-    redirect("/admin/posts");
+    redirect("/admin/posts?error=not-found");
   }
 
   const title = getString(formData, "title");
@@ -88,36 +118,78 @@ export async function updatePostAction(postId: string, formData: FormData) {
   const content = getString(formData, "content");
   const status = getNextStatus(formData);
 
-  if (!title || !content) {
-    throw new Error("El título y el contenido son obligatorios.");
+  const validationErrorCode = getValidationErrorCode(title, inputSlug, content);
+
+  if (validationErrorCode) {
+    redirect(`/admin/posts/${postId}/edit?error=${validationErrorCode}`);
   }
 
   const baseSlug = resolveBaseSlug(inputSlug, title);
 
   if (!baseSlug) {
-    throw new Error("No se pudo generar un slug válido.");
+    redirect(`/admin/posts/${postId}/edit?error=slug-invalid`);
   }
 
-  const slug = await generateUniqueSlug(baseSlug, existingPost.id);
+  let updatedPost: { id: string; slug: string };
 
-  const updatedPost = await prisma.post.update({
-    where: { id: existingPost.id },
-    data: {
-      title,
-      slug,
-      content,
-      status,
-      publishedAt:
-        status === PostStatus.PUBLISHED
-          ? existingPost.publishedAt ?? new Date()
-          : null,
-    },
-  });
+  try {
+    const slug = await generateUniqueSlug(baseSlug, existingPost.id);
+
+    updatedPost = await prisma.post.update({
+      where: { id: existingPost.id },
+      data: {
+        title,
+        slug,
+        content,
+        status,
+        publishedAt:
+          status === PostStatus.PUBLISHED
+            ? existingPost.publishedAt ?? new Date()
+            : null,
+      },
+      select: {
+        id: true,
+        slug: true,
+      },
+    });
+  } catch {
+    redirect(`/admin/posts/${postId}/edit?error=save-error`);
+  }
 
   revalidatePath("/admin/posts");
   revalidatePath("/posts");
   revalidatePath(`/posts/${existingPost.slug}`);
   revalidatePath(`/posts/${updatedPost.slug}`);
 
-  redirect("/admin/posts");
+  redirect(`/admin/posts/${updatedPost.id}/edit?status=updated`);
+}
+
+export async function deletePostAction(postId: string) {
+  await requireAdmin();
+
+  const post = await prisma.post.findUnique({
+    where: { id: postId },
+    select: {
+      id: true,
+      slug: true,
+    },
+  });
+
+  if (!post) {
+    redirect("/admin/posts?error=not-found");
+  }
+
+  try {
+    await prisma.post.delete({
+      where: { id: post.id },
+    });
+  } catch {
+    redirect("/admin/posts?error=delete-error");
+  }
+
+  revalidatePath("/admin/posts");
+  revalidatePath("/posts");
+  revalidatePath(`/posts/${post.slug}`);
+
+  redirect("/admin/posts?status=deleted");
 }
