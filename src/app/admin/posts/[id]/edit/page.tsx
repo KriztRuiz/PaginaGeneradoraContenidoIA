@@ -35,8 +35,12 @@ function getErrorMessage(error?: string) {
       return "El contenido es obligatorio.";
     case "slug-invalid":
       return "El slug es inválido.";
+    case "excerpt-invalid":
+      return "El extracto no es válido.";
+    case "category-invalid":
+      return "La categoría seleccionada no es válida.";
     case "save-error":
-      return "No se pudo guardar el post.";
+      return "No se pudo actualizar el post.";
     default:
       return undefined;
   }
@@ -51,9 +55,27 @@ export default async function EditPostPage({
   const { id } = await params;
   const resolvedSearchParams = (await searchParams) ?? {};
 
-  const post = await prisma.post.findUnique({
-    where: { id },
-  });
+  const [post, categories] = await Promise.all([
+    prisma.post.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        title: true,
+        slug: true,
+        excerpt: true,
+        content: true,
+        categoryId: true,
+        status: true,
+      },
+    }),
+    prisma.category.findMany({
+      orderBy: { name: "asc" },
+      select: {
+        id: true,
+        name: true,
+      },
+    }),
+  ]);
 
   if (!post) {
     notFound();
@@ -69,10 +91,13 @@ export default async function EditPostPage({
 
       <PostForm
         action={boundUpdateAction}
+        categories={categories}
         initialData={{
           title: post.title,
           slug: post.slug,
+          excerpt: post.excerpt,
           content: post.content,
+          categoryId: post.categoryId,
           status: post.status,
         }}
         successMessage={successMessage}

@@ -13,19 +13,51 @@ function getString(formData: FormData, key: string) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function getOptionalString(formData: FormData, key: string) {
+  const value = getString(formData, key);
+  return value === "" ? undefined : value;
+}
+
 function getNextStatus(formData: FormData) {
   const intent = getString(formData, "intent");
   return intent === "publish" ? PostStatus.PUBLISHED : PostStatus.DRAFT;
 }
 
-function getValidationErrorCode(title: string, slug: string, content: string) {
-  const errors = validatePostInput({ title, slug, content });
+function getValidationErrorCode(
+  title: string,
+  slug: string | undefined,
+  excerpt: string | undefined,
+  content: string,
+  categoryId: string | undefined,
+  status: PostStatus
+) {
+  const errors = validatePostInput({
+    title,
+    slug,
+    excerpt,
+    content,
+    categoryId,
+    status,
+  });
 
   if (errors.title) return "title-required";
   if (errors.content) return "content-required";
   if (errors.slug) return "slug-invalid";
+  if (errors.excerpt) return "excerpt-invalid";
+  if (errors.categoryId) return "category-invalid";
 
   return null;
+}
+
+async function ensureCategoryExists(categoryId?: string) {
+  if (!categoryId) return null;
+
+  const category = await prisma.category.findUnique({
+    where: { id: categoryId },
+    select: { id: true },
+  });
+
+  return category;
 }
 
 async function generateUniqueSlug(baseSlug: string, excludeId?: string) {
@@ -35,6 +67,7 @@ async function generateUniqueSlug(baseSlug: string, excludeId?: string) {
   while (true) {
     const existing = await prisma.post.findUnique({
       where: { slug: candidate },
+      select: { id: true },
     });
 
     if (!existing || existing.id === excludeId) {
@@ -50,30 +83,51 @@ export async function createPostAction(formData: FormData) {
   await requireAdmin();
 
   const title = getString(formData, "title");
-  const inputSlug = getString(formData, "slug");
+  const inputSlug = getOptionalString(formData, "slug");
+  const excerpt = getOptionalString(formData, "excerpt");
   const content = getString(formData, "content");
+  const categoryId = getOptionalString(formData, "categoryId");
   const status = getNextStatus(formData);
 
-  const validationErrorCode = getValidationErrorCode(title, inputSlug, content);
+  const validationErrorCode = getValidationErrorCode(
+    title,
+    inputSlug,
+    excerpt,
+    content,
+    categoryId,
+    status
+  );
 
   if (validationErrorCode) {
     redirect(`/admin/posts/new?error=${validationErrorCode}`);
   }
 
-  const baseSlug = resolveBaseSlug(inputSlug, title);
+  if (categoryId) {
+    const category = await ensureCategoryExists(categoryId);
+
+    if (!category) {
+      redirect("/admin/posts/new?error=category-invalid");
+    }
+  }
+
+  const baseSlug = resolveBaseSlug(inputSlug ?? "", title);
 
   if (!baseSlug) {
     redirect("/admin/posts/new?error=slug-invalid");
   }
 
+  let createdPost: { id: string; slug: string };
+
   try {
     const slug = await generateUniqueSlug(baseSlug);
 
-    const createdPost = await prisma.post.create({
+    createdPost = await prisma.post.create({
       data: {
         title,
         slug,
+        excerpt,
         content,
+        categoryId: categoryId ?? null,
         status,
         publishedAt: status === PostStatus.PUBLISHED ? new Date() : null,
       },
@@ -82,19 +136,19 @@ export async function createPostAction(formData: FormData) {
         slug: true,
       },
     });
-
-    revalidatePath("/admin/posts");
-    revalidatePath("/posts");
-    revalidatePath(`/posts/${createdPost.slug}`);
-
-    if (status === PostStatus.PUBLISHED) {
-      redirect("/admin/posts?status=created");
-    }
-
-    redirect(`/admin/posts/${createdPost.id}/edit?status=created`);
   } catch {
     redirect("/admin/posts/new?error=save-error");
   }
+
+  revalidatePath("/admin/posts");
+  revalidatePath("/posts");
+  revalidatePath(`/posts/${createdPost.slug}`);
+
+  if (status === PostStatus.PUBLISHED) {
+    redirect("/admin/posts?status=created");
+  }
+
+  redirect(`/admin/posts/${createdPost.id}/edit?status=created`);
 }
 
 export async function updatePostAction(postId: string, formData: FormData) {
@@ -114,17 +168,34 @@ export async function updatePostAction(postId: string, formData: FormData) {
   }
 
   const title = getString(formData, "title");
-  const inputSlug = getString(formData, "slug");
+  const inputSlug = getOptionalString(formData, "slug");
+  const excerpt = getOptionalString(formData, "excerpt");
   const content = getString(formData, "content");
+  const categoryId = getOptionalString(formData, "categoryId");
   const status = getNextStatus(formData);
 
-  const validationErrorCode = getValidationErrorCode(title, inputSlug, content);
+  const validationErrorCode = getValidationErrorCode(
+    title,
+    inputSlug,
+    excerpt,
+    content,
+    categoryId,
+    status
+  );
 
   if (validationErrorCode) {
     redirect(`/admin/posts/${postId}/edit?error=${validationErrorCode}`);
   }
 
-  const baseSlug = resolveBaseSlug(inputSlug, title);
+  if (categoryId) {
+    const category = await ensureCategoryExists(categoryId);
+
+    if (!category) {
+      redirect(`/admin/posts/${postId}/edit?error=category-invalid`);
+    }
+  }
+
+  const baseSlug = resolveBaseSlug(inputSlug ?? "", title);
 
   if (!baseSlug) {
     redirect(`/admin/posts/${postId}/edit?error=slug-invalid`);
@@ -140,7 +211,9 @@ export async function updatePostAction(postId: string, formData: FormData) {
       data: {
         title,
         slug,
+        excerpt,
         content,
+        categoryId: categoryId ?? null,
         status,
         publishedAt:
           status === PostStatus.PUBLISHED

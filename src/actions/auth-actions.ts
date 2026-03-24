@@ -141,7 +141,7 @@ export async function loginAction(formData: FormData) {
     await signIn("credentials", {
       email: safeEmail,
       password: safePassword,
-      redirectTo: "/admin/posts",
+      redirectTo: "/admin",
     });
   } catch (error) {
     if (error instanceof AuthError) {

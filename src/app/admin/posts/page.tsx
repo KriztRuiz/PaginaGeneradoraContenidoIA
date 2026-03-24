@@ -1,12 +1,12 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/auth";
-import { logoutAction } from "@/actions/auth-actions";
 import ConfirmDelete from "@/components/confirm-delete";
 import FormMessage from "@/components/form-message";
 
 type AdminPostsPageProps = {
   searchParams?: Promise<{
+    category?: string;
     status?: string;
     error?: string;
   }>;
@@ -14,6 +14,7 @@ type AdminPostsPageProps = {
 
 function formatDate(date: Date | null) {
   if (!date) return "—";
+
   return new Intl.DateTimeFormat("es-MX", {
     dateStyle: "medium",
     timeStyle: "short",
@@ -56,22 +57,78 @@ function formatStatus(status: "DRAFT" | "PUBLISHED") {
   return status === "PUBLISHED" ? "Publicado" : "Borrador";
 }
 
+function getExcerpt(excerpt: string | null, content: string) {
+  if (excerpt && excerpt.trim().length > 0) {
+    return excerpt.trim();
+  }
+
+  const plainContent = content.trim().replace(/\s+/g, " ");
+
+  if (plainContent.length <= 180) {
+    return plainContent;
+  }
+
+  return `${plainContent.slice(0, 180).trim()}...`;
+}
+
 export default async function AdminPostsPage({
   searchParams,
 }: AdminPostsPageProps) {
   await requireAdmin();
 
   const resolvedSearchParams = (await searchParams) ?? {};
+  const selectedCategorySlug = resolvedSearchParams.category;
+
   const pageMessage = getPageMessage(
     resolvedSearchParams.status,
-    resolvedSearchParams.error,
+    resolvedSearchParams.error
   );
 
-  const posts = await prisma.post.findMany({
-    orderBy: {
-      updatedAt: "desc",
-    },
-  });
+  const [categories, posts] = await Promise.all([
+    prisma.category.findMany({
+      orderBy: {
+        name: "asc",
+      },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        _count: {
+          select: {
+            posts: true,
+          },
+        },
+      },
+    }),
+    prisma.post.findMany({
+      where: selectedCategorySlug
+        ? {
+            category: {
+              slug: selectedCategorySlug,
+            },
+          }
+        : undefined,
+      orderBy: {
+        updatedAt: "desc",
+      },
+      select: {
+        id: true,
+        title: true,
+        slug: true,
+        excerpt: true,
+        content: true,
+        status: true,
+        updatedAt: true,
+        category: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+          },
+        },
+      },
+    }),
+  ]);
 
   return (
     <main className="container">
@@ -79,11 +136,9 @@ export default async function AdminPostsPage({
         <h1>Posts</h1>
 
         <div className="toolbar-actions">
+          <Link href="/admin">Dashboard</Link>
+          <Link href="/admin/categories">Categorías</Link>
           <Link href="/admin/posts/new">Nuevo post</Link>
-
-          <form action={logoutAction}>
-            <button type="submit">Salir</button>
-          </form>
         </div>
       </div>
 
@@ -91,8 +146,33 @@ export default async function AdminPostsPage({
         <FormMessage type={pageMessage.type} message={pageMessage.message} />
       ) : null}
 
+      <section className="stack" style={{ marginBottom: "24px" }}>
+        <h2>Filtrar por categoría</h2>
+
+        <div className="actions">
+          <Link
+            href="/admin/posts"
+            aria-current={!selectedCategorySlug ? "page" : undefined}
+          >
+            Todas
+          </Link>
+
+          {categories.map((category) => (
+            <Link
+              key={category.id}
+              href={`/admin/posts?category=${category.slug}`}
+              aria-current={
+                selectedCategorySlug === category.slug ? "page" : undefined
+              }
+            >
+              {category.name} ({category._count.posts})
+            </Link>
+          ))}
+        </div>
+      </section>
+
       {posts.length === 0 ? (
-        <p>No hay posts todavía.</p>
+        <p>No hay posts para este filtro.</p>
       ) : (
         <div className="stack">
           {posts.map((post) => (
@@ -108,12 +188,21 @@ export default async function AdminPostsPage({
               </p>
 
               <p>
+                <strong>Categoría:</strong>{" "}
+                {post.category ? post.category.name : "Sin categoría"}
+              </p>
+
+              <p>
+                <strong>Extracto:</strong> {getExcerpt(post.excerpt, post.content)}
+              </p>
+
+              <p>
                 <strong>Actualizado:</strong> {formatDate(post.updatedAt)}
               </p>
 
               <div className="actions">
                 <Link href={`/admin/posts/${post.id}/edit`}>Editar</Link>
-
+                <Link href={`/posts/${post.slug}`}>Ver público</Link>
                 <ConfirmDelete postId={post.id} title={post.title} />
               </div>
             </article>

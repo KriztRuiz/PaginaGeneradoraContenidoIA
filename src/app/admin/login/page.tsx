@@ -14,7 +14,7 @@ export default async function AdminLoginPage({
   const initialized = await isSystemInitialized();
 
   if (initialized) {
-    await redirectIfAuthenticated("/admin/posts");
+    await redirectIfAuthenticated("/admin");
   }
 
   const params = await searchParams;

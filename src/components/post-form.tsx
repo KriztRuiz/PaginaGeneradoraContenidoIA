@@ -1,16 +1,24 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useFormStatus } from "react-dom";
 import FormMessage from "@/components/form-message";
 import { validatePostInput } from "@/lib/post-validation";
 
+type CategoryOption = {
+  id: string;
+  name: string;
+};
+
 type PostFormProps = {
   action: (formData: FormData) => void | Promise<void>;
+  categories?: CategoryOption[];
   initialData?: {
     title: string;
     slug: string;
+    excerpt?: string | null;
     content: string;
+    categoryId?: string | null;
     status: "DRAFT" | "PUBLISHED";
   };
   errorMessage?: string;
@@ -22,6 +30,17 @@ type SubmitButtonsProps = {
   isPublished: boolean;
   hasChanges: boolean;
 };
+
+function slugify(value: string) {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s-]/g, "")
+    .trim()
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-");
+}
 
 function SubmitButtons({
   isEditMode,
@@ -62,33 +81,68 @@ function SubmitButtons({
 
 export default function PostForm({
   action,
+  categories = [],
   initialData,
   errorMessage,
   successMessage,
 }: PostFormProps) {
   const [title, setTitle] = useState(initialData?.title ?? "");
   const [slug, setSlug] = useState(initialData?.slug ?? "");
+  const [excerpt, setExcerpt] = useState(initialData?.excerpt ?? "");
   const [content, setContent] = useState(initialData?.content ?? "");
+  const [categoryId, setCategoryId] = useState(initialData?.categoryId ?? "");
   const [showValidation, setShowValidation] = useState(false);
+  const [slugTouched, setSlugTouched] = useState(Boolean(initialData?.slug));
 
   const isEditMode = Boolean(initialData);
   const isPublished = initialData?.status === "PUBLISHED";
 
   const initialTitle = initialData?.title ?? "";
   const initialSlug = initialData?.slug ?? "";
+  const initialExcerpt = initialData?.excerpt ?? "";
   const initialContent = initialData?.content ?? "";
+  const initialCategoryId = initialData?.categoryId ?? "";
+
+  useEffect(() => {
+    if (!slugTouched) {
+      setSlug(slugify(title));
+    }
+  }, [title, slugTouched]);
 
   const hasChanges = useMemo(() => {
     return (
       title !== initialTitle ||
       slug !== initialSlug ||
-      content !== initialContent
+      excerpt !== initialExcerpt ||
+      content !== initialContent ||
+      categoryId !== initialCategoryId
     );
-  }, [title, slug, content, initialTitle, initialSlug, initialContent]);
+  }, [
+    title,
+    slug,
+    excerpt,
+    content,
+    categoryId,
+    initialTitle,
+    initialSlug,
+    initialExcerpt,
+    initialContent,
+    initialCategoryId,
+  ]);
+
+  const validationStatus: "DRAFT" | "PUBLISHED" =
+    initialData?.status ?? "DRAFT";
 
   const errors = useMemo(() => {
-    return validatePostInput({ title, slug, content });
-  }, [title, slug, content]);
+    return validatePostInput({
+      title,
+      slug: slug || undefined,
+      excerpt: excerpt || undefined,
+      content,
+      categoryId: categoryId || undefined,
+      status: validationStatus,
+    });
+  }, [title, slug, excerpt, content, categoryId, validationStatus]);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     setShowValidation(true);
@@ -128,7 +182,10 @@ export default function PostForm({
           name="slug"
           type="text"
           value={slug}
-          onChange={(event) => setSlug(event.target.value)}
+          onChange={(event) => {
+            setSlugTouched(true);
+            setSlug(event.target.value);
+          }}
           placeholder="opcional-se-genera-desde-el-titulo"
           aria-invalid={showValidation && Boolean(errors.slug)}
         />
@@ -139,6 +196,47 @@ export default function PostForm({
             Opcional. Si lo dejas vacío, se genera desde el título.
           </p>
         )}
+      </div>
+
+      <div className="stack">
+        <label htmlFor="excerpt">Extracto</label>
+        <textarea
+          id="excerpt"
+          name="excerpt"
+          rows={3}
+          value={excerpt}
+          onChange={(event) => setExcerpt(event.target.value)}
+          placeholder="Resumen corto opcional para listados"
+          aria-invalid={showValidation && Boolean(errors.excerpt)}
+        />
+        {showValidation && errors.excerpt ? (
+          <p style={{ color: "#b42318", margin: 0 }}>{errors.excerpt}</p>
+        ) : (
+          <p style={{ color: "#475467", margin: 0, fontSize: "14px" }}>
+            Opcional. Máximo 320 caracteres.
+          </p>
+        )}
+      </div>
+
+      <div className="stack">
+        <label htmlFor="categoryId">Categoría</label>
+        <select
+          id="categoryId"
+          name="categoryId"
+          value={categoryId}
+          onChange={(event) => setCategoryId(event.target.value)}
+          aria-invalid={showValidation && Boolean(errors.categoryId)}
+        >
+          <option value="">Sin categoría</option>
+          {categories.map((category) => (
+            <option key={category.id} value={category.id}>
+              {category.name}
+            </option>
+          ))}
+        </select>
+        {showValidation && errors.categoryId ? (
+          <p style={{ color: "#b42318", margin: 0 }}>{errors.categoryId}</p>
+        ) : null}
       </div>
 
       <div className="stack">
