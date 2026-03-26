@@ -20,8 +20,16 @@ function getErrorMessage(error?: string) {
       return "El slug es inválido.";
     case "excerpt-invalid":
       return "El extracto no es válido.";
+    case "seo-title-invalid":
+      return "El SEO title no es válido.";
+    case "seo-description-invalid":
+      return "La SEO description no es válida.";
+    case "scheduled-at-invalid":
+      return "La fecha programada no es válida o es obligatoria para un post programado.";
     case "category-invalid":
       return "La categoría seleccionada no es válida.";
+    case "status-invalid":
+      return "El estado del post no es válido.";
     case "save-error":
       return "No se pudo guardar el post.";
     default:

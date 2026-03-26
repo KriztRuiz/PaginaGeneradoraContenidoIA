@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { PostStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
@@ -11,18 +12,15 @@ type PublicPostDetailPageProps = {
 
 function formatDate(date: Date | null) {
   if (!date) return "—";
+
   return new Intl.DateTimeFormat("es-MX", {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(date);
 }
 
-export default async function PublicPostDetailPage({
-  params,
-}: PublicPostDetailPageProps) {
-  const { slug } = await params;
-
-  const post = await prisma.post.findFirst({
+async function getPublishedPostBySlug(slug: string) {
+  return prisma.post.findFirst({
     where: {
       slug,
       status: PostStatus.PUBLISHED,
@@ -33,6 +31,8 @@ export default async function PublicPostDetailPage({
       slug: true,
       excerpt: true,
       content: true,
+      seoTitle: true,
+      seoDescription: true,
       publishedAt: true,
       category: {
         select: {
@@ -43,6 +43,33 @@ export default async function PublicPostDetailPage({
       },
     },
   });
+}
+
+export async function generateMetadata({
+  params,
+}: PublicPostDetailPageProps): Promise<Metadata> {
+  const { slug } = await params;
+  const post = await getPublishedPostBySlug(slug);
+
+  if (!post) {
+    return {
+      title: "Post no encontrado",
+      description: "La publicación solicitada no está disponible.",
+    };
+  }
+
+  return {
+    title: post.seoTitle || post.title,
+    description:
+      post.seoDescription || post.excerpt || "Publicación disponible.",
+  };
+}
+
+export default async function PublicPostDetailPage({
+  params,
+}: PublicPostDetailPageProps) {
+  const { slug } = await params;
+  const post = await getPublishedPostBySlug(slug);
 
   if (!post) {
     notFound();
@@ -78,7 +105,12 @@ export default async function PublicPostDetailPage({
           </p>
         ) : null}
 
-        <div className="post-content">{post.content}</div>
+        <div
+          className="post-content"
+          style={{ whiteSpace: "pre-wrap", lineHeight: 1.7 }}
+        >
+          {post.content}
+        </div>
       </article>
     </main>
   );

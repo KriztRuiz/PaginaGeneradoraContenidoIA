@@ -9,7 +9,10 @@ datasource db {
 
 enum PostStatus {
   DRAFT
+  PENDING
+  SCHEDULED
   PUBLISHED
+  REJECTED
 }
 
 model User {
@@ -22,28 +25,53 @@ model User {
 }
 
 model Category {
-  id        String   @id @default(cuid())
-  name      String   @unique
-  slug      String   @unique
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String   @id @default(cuid())
+  name        String   @unique
+  slug        String   @unique
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   posts Post[]
 }
 
 model Post {
-  id          String     @id @default(cuid())
-  title       String
-  slug        String     @unique
-  excerpt     String?
-  content     String     @db.Text
-  status      PostStatus @default(DRAFT)
-  publishedAt DateTime?
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  id             String     @id @default(cuid())
+  title          String
+  slug           String     @unique
+  excerpt        String?
+  content        String     @db.Text
+  seoTitle       String?
+  seoDescription String?
+  status         PostStatus @default(DRAFT)
+  publishedAt    DateTime?
+  scheduledAt    DateTime?
+  createdById    String?
+  updatedById    String?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
 
   categoryId String?
   category   Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
 
+  revisions PostRevision[]
+
+  @@index([slug])
+  @@index([status])
+  @@index([publishedAt])
+  @@index([scheduledAt])
   @@index([categoryId])
+}
+
+model PostRevision {
+  id           String   @id @default(cuid())
+  postId       String
+  editorId     String?
+  action       String
+  snapshotJson Json
+  createdAt    DateTime @default(now())
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@index([postId, createdAt])
 }

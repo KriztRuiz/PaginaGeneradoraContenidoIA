@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import PostForm from "@/components/post-form";
 import ConfirmDelete from "@/components/confirm-delete";
+import PostRevisions from "@/components/post-revisions";
 import { updatePostAction } from "@/actions/post-actions";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -37,8 +38,16 @@ function getErrorMessage(error?: string) {
       return "El slug es inválido.";
     case "excerpt-invalid":
       return "El extracto no es válido.";
+    case "seo-title-invalid":
+      return "El SEO title no es válido.";
+    case "seo-description-invalid":
+      return "La SEO description no es válida.";
+    case "scheduled-at-invalid":
+      return "La fecha programada no es válida o es obligatoria para un post programado.";
     case "category-invalid":
       return "La categoría seleccionada no es válida.";
+    case "status-invalid":
+      return "El estado del post no es válido.";
     case "save-error":
       return "No se pudo actualizar el post.";
     default:
@@ -55,7 +64,7 @@ export default async function EditPostPage({
   const { id } = await params;
   const resolvedSearchParams = (await searchParams) ?? {};
 
-  const [post, categories] = await Promise.all([
+  const [post, categories, revisions] = await Promise.all([
     prisma.post.findUnique({
       where: { id },
       select: {
@@ -64,6 +73,9 @@ export default async function EditPostPage({
         slug: true,
         excerpt: true,
         content: true,
+        seoTitle: true,
+        seoDescription: true,
+        scheduledAt: true,
         categoryId: true,
         status: true,
       },
@@ -73,6 +85,18 @@ export default async function EditPostPage({
       select: {
         id: true,
         name: true,
+      },
+    }),
+    prisma.postRevision.findMany({
+      where: { postId: id },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+      select: {
+        id: true,
+        action: true,
+        editorId: true,
+        createdAt: true,
+        snapshotJson: true,
       },
     }),
   ]);
@@ -97,6 +121,9 @@ export default async function EditPostPage({
           slug: post.slug,
           excerpt: post.excerpt,
           content: post.content,
+          seoTitle: post.seoTitle,
+          seoDescription: post.seoDescription,
+          scheduledAt: post.scheduledAt?.toISOString() ?? null,
           categoryId: post.categoryId,
           status: post.status,
         }}
@@ -104,13 +131,11 @@ export default async function EditPostPage({
         errorMessage={errorMessage}
       />
 
+      <PostRevisions revisions={revisions} />
+
       <section className="stack" style={{ marginTop: "24px" }}>
         <h2>Zona de peligro</h2>
-        <ConfirmDelete
-          postId={post.id}
-          title={post.title}
-          buttonLabel="Eliminar post"
-        />
+        <ConfirmDelete postId={post.id} title={post.title} />
       </section>
 
       <p>

@@ -17,11 +17,16 @@ function getOptionalString(formData: FormData, key: string) {
   return value === "" ? undefined : value;
 }
 
-function getValidationErrorCode(name: string, slug: string | undefined) {
-  const errors = validateCategoryInput({ name, slug });
+function getValidationErrorCode(input: {
+  name: string;
+  slug?: string;
+  description?: string;
+}) {
+  const errors = validateCategoryInput(input);
 
   if (errors.name) return "name-invalid";
   if (errors.slug) return "slug-invalid";
+  if (errors.description) return "description-invalid";
 
   return null;
 }
@@ -56,8 +61,13 @@ export async function createCategoryAction(formData: FormData) {
 
   const name = getString(formData, "name");
   const inputSlug = getOptionalString(formData, "slug");
+  const description = getOptionalString(formData, "description");
 
-  const validationErrorCode = getValidationErrorCode(name, inputSlug);
+  const validationErrorCode = getValidationErrorCode({
+    name,
+    slug: inputSlug,
+    description,
+  });
 
   if (validationErrorCode) {
     redirect(`/admin/categories?error=${validationErrorCode}`);
@@ -76,6 +86,7 @@ export async function createCategoryAction(formData: FormData) {
       data: {
         name,
         slug,
+        description: description ?? null,
       },
       select: {
         id: true,
@@ -106,8 +117,13 @@ export async function updateCategoryAction(
 
   const name = getString(formData, "name");
   const inputSlug = getOptionalString(formData, "slug");
+  const description = getOptionalString(formData, "description");
 
-  const validationErrorCode = getValidationErrorCode(name, inputSlug);
+  const validationErrorCode = getValidationErrorCode({
+    name,
+    slug: inputSlug,
+    description,
+  });
 
   if (validationErrorCode) {
     redirect(`/admin/categories/${categoryId}/edit?error=${validationErrorCode}`);
@@ -127,6 +143,7 @@ export async function updateCategoryAction(
       data: {
         name,
         slug,
+        description: description ?? null,
       },
       select: {
         id: true,

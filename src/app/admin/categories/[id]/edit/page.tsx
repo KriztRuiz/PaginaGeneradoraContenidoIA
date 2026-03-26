@@ -33,6 +33,8 @@ function getErrorMessage(error?: string) {
       return "El nombre de la categoría no es válido.";
     case "slug-invalid":
       return "El slug de la categoría es inválido.";
+    case "description-invalid":
+      return "La descripción de la categoría no es válida.";
     case "save-error":
       return "No se pudo actualizar la categoría.";
     case "not-found":
@@ -57,6 +59,7 @@ export default async function EditCategoryPage({
       id: true,
       name: true,
       slug: true,
+      description: true,
       _count: {
         select: {
           posts: true,
@@ -82,6 +85,7 @@ export default async function EditCategoryPage({
         initialData={{
           name: category.name,
           slug: category.slug,
+          description: category.description,
         }}
         successMessage={successMessage}
         errorMessage={errorMessage}

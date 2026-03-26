@@ -1,6 +1,12 @@
 import Link from "next/link";
+import { Metadata } from "next";
 import { PostStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+
+export const metadata: Metadata = {
+  title: "Posts",
+  description: "Listado público de publicaciones.",
+};
 
 type PublicPostsPageProps = {
   searchParams?: Promise<{
@@ -10,6 +16,7 @@ type PublicPostsPageProps = {
 
 function formatDate(date: Date | null) {
   if (!date) return "—";
+
   return new Intl.DateTimeFormat("es-MX", {
     dateStyle: "medium",
     timeStyle: "short",
@@ -65,9 +72,7 @@ export default async function PublicPostsPage({
             }
           : {}),
       },
-      orderBy: {
-        publishedAt: "desc",
-      },
+      orderBy: [{ publishedAt: "desc" }, { updatedAt: "desc" }],
       select: {
         id: true,
         title: true,
@@ -88,7 +93,13 @@ export default async function PublicPostsPage({
 
   return (
     <main className="container">
-      <h1>Posts públicos</h1>
+      <div className="toolbar">
+        <h1>Posts públicos</h1>
+
+        <div className="toolbar-actions">
+          <Link href="/">Inicio</Link>
+        </div>
+      </div>
 
       <section className="stack" style={{ marginBottom: "24px" }}>
         <h2>Categorías</h2>
@@ -131,7 +142,13 @@ export default async function PublicPostsPage({
 
               <p>
                 <strong>Categoría:</strong>{" "}
-                {post.category ? post.category.name : "Sin categoría"}
+                {post.category ? (
+                  <Link href={`/posts?category=${post.category.slug}`}>
+                    {post.category.name}
+                  </Link>
+                ) : (
+                  "Sin categoría"
+                )}
               </p>
 
               <p>{getExcerpt(post.excerpt, post.content)}</p>

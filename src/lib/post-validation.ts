@@ -9,51 +9,92 @@ function emptyToUndefined(value: unknown) {
   return trimmed === "" ? undefined : trimmed;
 }
 
-export const postSchema = z.object({
-  title: z
-    .string()
-    .trim()
-    .min(1, "El título es obligatorio.")
-    .max(180, "El título no puede exceder 180 caracteres."),
+function isValidDateString(value: string) {
+  return !Number.isNaN(new Date(value).getTime());
+}
 
-  slug: z.preprocess(
-    emptyToUndefined,
-    z
+export const postSchema = z
+  .object({
+    title: z
       .string()
       .trim()
-      .max(200, "El slug no puede exceder 200 caracteres.")
-      .regex(
-        slugRegex,
-        "El slug solo puede contener minúsculas, números y guiones medios."
-      )
-      .optional()
-  ),
+      .min(1, "El título es obligatorio.")
+      .max(180, "El título no puede exceder 180 caracteres."),
 
-  excerpt: z.preprocess(
-    emptyToUndefined,
-    z
+    slug: z.preprocess(
+      emptyToUndefined,
+      z
+        .string()
+        .trim()
+        .max(200, "El slug no puede exceder 200 caracteres.")
+        .regex(
+          slugRegex,
+          "El slug solo puede contener minúsculas, números y guiones medios."
+        )
+        .optional()
+    ),
+
+    excerpt: z.preprocess(
+      emptyToUndefined,
+      z
+        .string()
+        .trim()
+        .max(320, "El extracto no puede exceder 320 caracteres.")
+        .optional()
+    ),
+
+    content: z
       .string()
       .trim()
-      .max(320, "El extracto no puede exceder 320 caracteres.")
-      .optional()
-  ),
+      .min(1, "El contenido es obligatorio."),
 
-  content: z
-    .string()
-    .trim()
-    .min(1, "El contenido es obligatorio."),
+    seoTitle: z.preprocess(
+      emptyToUndefined,
+      z
+        .string()
+        .trim()
+        .max(70, "El SEO title no puede exceder 70 caracteres.")
+        .optional()
+    ),
 
-  categoryId: z.preprocess(
-    emptyToUndefined,
-    z.string().trim().min(1, "La categoría no es válida.").optional()
-  ),
+    seoDescription: z.preprocess(
+      emptyToUndefined,
+      z
+        .string()
+        .trim()
+        .max(160, "La SEO description no puede exceder 160 caracteres.")
+        .optional()
+    ),
 
-  status: z
-    .nativeEnum(PostStatus, {
-      error: "El estado del post no es válido.",
-    })
-    .default(PostStatus.DRAFT),
-});
+    scheduledAt: z.preprocess(
+      emptyToUndefined,
+      z
+        .string()
+        .trim()
+        .refine(isValidDateString, "La fecha programada no es válida.")
+        .optional()
+    ),
+
+    categoryId: z.preprocess(
+      emptyToUndefined,
+      z.string().trim().min(1, "La categoría no es válida.").optional()
+    ),
+
+    status: z
+      .nativeEnum(PostStatus, {
+        error: "El estado del post no es válido.",
+      })
+      .default(PostStatus.DRAFT),
+  })
+  .superRefine((data, ctx) => {
+    if (data.status === PostStatus.SCHEDULED && !data.scheduledAt) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["scheduledAt"],
+        message: "Debes indicar una fecha para programar la publicación.",
+      });
+    }
+  });
 
 export const postUpdateSchema = postSchema.extend({
   id: z
@@ -67,6 +108,9 @@ export type PostInput = {
   slug?: string;
   excerpt?: string;
   content: string;
+  seoTitle?: string;
+  seoDescription?: string;
+  scheduledAt?: string;
   categoryId?: string;
   status?: PostStatus;
 };
@@ -83,6 +127,9 @@ export type PostValidationErrors = {
   slug?: string;
   excerpt?: string;
   content?: string;
+  seoTitle?: string;
+  seoDescription?: string;
+  scheduledAt?: string;
   categoryId?: string;
   status?: string;
   general?: string;
@@ -102,6 +149,9 @@ export function validatePostInput(input: PostInput): PostValidationErrors {
     slug: fieldErrors.slug?.[0],
     excerpt: fieldErrors.excerpt?.[0],
     content: fieldErrors.content?.[0],
+    seoTitle: fieldErrors.seoTitle?.[0],
+    seoDescription: fieldErrors.seoDescription?.[0],
+    scheduledAt: fieldErrors.scheduledAt?.[0],
     categoryId: fieldErrors.categoryId?.[0],
     status: fieldErrors.status?.[0],
     general:
@@ -127,6 +177,9 @@ export function validatePostUpdateInput(
     slug: fieldErrors.slug?.[0],
     excerpt: fieldErrors.excerpt?.[0],
     content: fieldErrors.content?.[0],
+    seoTitle: fieldErrors.seoTitle?.[0],
+    seoDescription: fieldErrors.seoDescription?.[0],
+    scheduledAt: fieldErrors.scheduledAt?.[0],
     categoryId: fieldErrors.categoryId?.[0],
     status: fieldErrors.status?.[0],
     general:

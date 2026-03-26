@@ -1,6 +1,9 @@
 import Link from "next/link";
 import CategoryForm from "@/components/category-form";
-import { createCategoryAction, deleteCategoryAction } from "@/actions/category-actions";
+import {
+  createCategoryAction,
+  deleteCategoryAction,
+} from "@/actions/category-actions";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
@@ -28,6 +31,8 @@ function getErrorMessage(error?: string) {
       return "El nombre de la categoría no es válido.";
     case "slug-invalid":
       return "El slug de la categoría es inválido.";
+    case "description-invalid":
+      return "La descripción de la categoría no es válida.";
     case "save-error":
       return "No se pudo guardar la categoría.";
     case "delete-error":
@@ -54,6 +59,7 @@ export default async function CategoriesPage({
       id: true,
       name: true,
       slug: true,
+      description: true,
       _count: {
         select: {
           posts: true,
@@ -101,6 +107,13 @@ export default async function CategoriesPage({
                 <div className="stack" style={{ gap: "4px" }}>
                   <strong>{category.name}</strong>
                   <span style={{ color: "#475467" }}>/{category.slug}</span>
+
+                  {category.description ? (
+                    <p style={{ margin: 0, color: "#475467" }}>
+                      {category.description}
+                    </p>
+                  ) : null}
+
                   <span style={{ color: "#475467", fontSize: "14px" }}>
                     Posts asociados: {category._count.posts}
                   </span>

@@ -27,6 +27,15 @@ export const categorySchema = z.object({
       )
       .optional()
   ),
+
+  description: z.preprocess(
+    emptyToUndefined,
+    z
+      .string()
+      .trim()
+      .max(240, "La descripción no puede exceder 240 caracteres.")
+      .optional()
+  ),
 });
 
 export const categoryUpdateSchema = categorySchema.extend({
@@ -39,6 +48,7 @@ export const categoryUpdateSchema = categorySchema.extend({
 export type CategoryInput = {
   name: string;
   slug?: string;
+  description?: string;
 };
 
 export type CategoryUpdateInput = CategoryInput & {
@@ -48,6 +58,7 @@ export type CategoryUpdateInput = CategoryInput & {
 export type CategoryValidationErrors = {
   name?: string;
   slug?: string;
+  description?: string;
   general?: string;
 };
 
@@ -65,6 +76,7 @@ export function validateCategoryInput(
   return {
     name: fieldErrors.name?.[0],
     slug: fieldErrors.slug?.[0],
+    description: fieldErrors.description?.[0],
     general:
       result.error.issues.length > 0
         ? "Hay errores de validación."
@@ -86,6 +98,7 @@ export function validateCategoryUpdateInput(
   return {
     name: fieldErrors.name?.[0],
     slug: fieldErrors.slug?.[0],
+    description: fieldErrors.description?.[0],
     general:
       result.error.issues.length > 0
         ? "Hay errores de validación."

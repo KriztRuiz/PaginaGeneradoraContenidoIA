@@ -1,5 +1,6 @@
 "use client";
 
+import type { PostStatus } from "@prisma/client";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useFormStatus } from "react-dom";
 import FormMessage from "@/components/form-message";
@@ -18,18 +19,28 @@ type PostFormProps = {
     slug: string;
     excerpt?: string | null;
     content: string;
+    seoTitle?: string | null;
+    seoDescription?: string | null;
+    scheduledAt?: string | null;
     categoryId?: string | null;
-    status: "DRAFT" | "PUBLISHED";
+    status: PostStatus;
   };
   errorMessage?: string;
   successMessage?: string;
 };
 
-type SubmitButtonsProps = {
+type SubmitButtonProps = {
   isEditMode: boolean;
-  isPublished: boolean;
   hasChanges: boolean;
 };
+
+const STATUS_OPTIONS: Array<{ value: PostStatus; label: string }> = [
+  { value: "DRAFT", label: "Borrador" },
+  { value: "PENDING", label: "Pendiente" },
+  { value: "SCHEDULED", label: "Programado" },
+  { value: "PUBLISHED", label: "Publicado" },
+  { value: "REJECTED", label: "Rechazado" },
+];
 
 function slugify(value: string) {
   return value
@@ -42,38 +53,36 @@ function slugify(value: string) {
     .replace(/-+/g, "-");
 }
 
-function SubmitButtons({
-  isEditMode,
-  isPublished,
-  hasChanges,
-}: SubmitButtonsProps) {
+function toDateTimeLocalValue(value?: string | null) {
+  if (!value) return "";
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  const offset = date.getTimezoneOffset();
+  const localDate = new Date(date.getTime() - offset * 60_000);
+
+  return localDate.toISOString().slice(0, 16);
+}
+
+function hasValidationErrors(errors: Record<string, string | undefined>) {
+  return Object.values(errors).some(Boolean);
+}
+
+function SubmitButton({ isEditMode, hasChanges }: SubmitButtonProps) {
   const { pending } = useFormStatus();
-
-  const saveDisabled =
-    pending || (isEditMode && !isPublished && !hasChanges);
-
-  const publishDisabled =
-    pending || (isEditMode && isPublished && !hasChanges);
-
-  const publishLabel = isEditMode
-    ? isPublished
-      ? "Actualizar"
-      : "Publicar"
-    : "Publicar";
 
   return (
     <div className="actions">
-      <button type="submit" name="intent" value="save" disabled={saveDisabled}>
-        {pending ? "Guardando..." : "Guardar borrador"}
-      </button>
-
-      <button
-        type="submit"
-        name="intent"
-        value="publish"
-        disabled={publishDisabled}
-      >
-        {pending ? "Guardando..." : publishLabel}
+      <button type="submit" disabled={pending || (isEditMode && !hasChanges)}>
+        {pending
+          ? "Guardando..."
+          : isEditMode
+            ? "Actualizar"
+            : "Crear post"}
       </button>
     </div>
   );
@@ -90,18 +99,31 @@ export default function PostForm({
   const [slug, setSlug] = useState(initialData?.slug ?? "");
   const [excerpt, setExcerpt] = useState(initialData?.excerpt ?? "");
   const [content, setContent] = useState(initialData?.content ?? "");
+  const [seoTitle, setSeoTitle] = useState(initialData?.seoTitle ?? "");
+  const [seoDescription, setSeoDescription] = useState(
+    initialData?.seoDescription ?? ""
+  );
+  const [scheduledAt, setScheduledAt] = useState(
+    toDateTimeLocalValue(initialData?.scheduledAt)
+  );
   const [categoryId, setCategoryId] = useState(initialData?.categoryId ?? "");
+  const [status, setStatus] = useState<PostStatus>(
+    initialData?.status ?? "DRAFT"
+  );
   const [showValidation, setShowValidation] = useState(false);
   const [slugTouched, setSlugTouched] = useState(Boolean(initialData?.slug));
 
   const isEditMode = Boolean(initialData);
-  const isPublished = initialData?.status === "PUBLISHED";
 
   const initialTitle = initialData?.title ?? "";
   const initialSlug = initialData?.slug ?? "";
   const initialExcerpt = initialData?.excerpt ?? "";
   const initialContent = initialData?.content ?? "";
+  const initialSeoTitle = initialData?.seoTitle ?? "";
+  const initialSeoDescription = initialData?.seoDescription ?? "";
+  const initialScheduledAt = toDateTimeLocalValue(initialData?.scheduledAt);
   const initialCategoryId = initialData?.categoryId ?? "";
+  const initialStatus = initialData?.status ?? "DRAFT";
 
   useEffect(() => {
     if (!slugTouched) {
@@ -115,23 +137,32 @@ export default function PostForm({
       slug !== initialSlug ||
       excerpt !== initialExcerpt ||
       content !== initialContent ||
-      categoryId !== initialCategoryId
+      seoTitle !== initialSeoTitle ||
+      seoDescription !== initialSeoDescription ||
+      scheduledAt !== initialScheduledAt ||
+      categoryId !== initialCategoryId ||
+      status !== initialStatus
     );
   }, [
     title,
     slug,
     excerpt,
     content,
+    seoTitle,
+    seoDescription,
+    scheduledAt,
     categoryId,
+    status,
     initialTitle,
     initialSlug,
     initialExcerpt,
     initialContent,
+    initialSeoTitle,
+    initialSeoDescription,
+    initialScheduledAt,
     initialCategoryId,
+    initialStatus,
   ]);
-
-  const validationStatus: "DRAFT" | "PUBLISHED" =
-    initialData?.status ?? "DRAFT";
 
   const errors = useMemo(() => {
     return validatePostInput({
@@ -139,18 +170,33 @@ export default function PostForm({
       slug: slug || undefined,
       excerpt: excerpt || undefined,
       content,
+      seoTitle: seoTitle || undefined,
+      seoDescription: seoDescription || undefined,
+      scheduledAt: scheduledAt || undefined,
       categoryId: categoryId || undefined,
-      status: validationStatus,
+      status,
     });
-  }, [title, slug, excerpt, content, categoryId, validationStatus]);
+  }, [
+    title,
+    slug,
+    excerpt,
+    content,
+    seoTitle,
+    seoDescription,
+    scheduledAt,
+    categoryId,
+    status,
+  ]);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     setShowValidation(true);
 
-    if (Object.keys(errors).length > 0) {
+    if (hasValidationErrors(errors)) {
       event.preventDefault();
     }
   }
+
+  const showScheduledAtField = status === "SCHEDULED";
 
   return (
     <form action={action} onSubmit={handleSubmit} className="stack" noValidate>
@@ -240,6 +286,93 @@ export default function PostForm({
       </div>
 
       <div className="stack">
+        <label htmlFor="status">Estado</label>
+        <select
+          id="status"
+          name="status"
+          value={status}
+          onChange={(event) => setStatus(event.target.value as PostStatus)}
+          aria-invalid={showValidation && Boolean(errors.status)}
+        >
+          {STATUS_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+        {showValidation && errors.status ? (
+          <p style={{ color: "#b42318", margin: 0 }}>{errors.status}</p>
+        ) : (
+          <p style={{ color: "#475467", margin: 0, fontSize: "14px" }}>
+            El estado ahora se controla directamente desde el formulario.
+          </p>
+        )}
+      </div>
+
+      {showScheduledAtField ? (
+        <div className="stack">
+          <label htmlFor="scheduledAt">Fecha programada</label>
+          <input
+            id="scheduledAt"
+            name="scheduledAt"
+            type="datetime-local"
+            value={scheduledAt}
+            onChange={(event) => setScheduledAt(event.target.value)}
+            aria-invalid={showValidation && Boolean(errors.scheduledAt)}
+          />
+          {showValidation && errors.scheduledAt ? (
+            <p style={{ color: "#b42318", margin: 0 }}>{errors.scheduledAt}</p>
+          ) : (
+            <p style={{ color: "#475467", margin: 0, fontSize: "14px" }}>
+              Obligatoria cuando el estado es Programado.
+            </p>
+          )}
+        </div>
+      ) : null}
+
+      <div className="stack">
+        <label htmlFor="seoTitle">SEO title</label>
+        <input
+          id="seoTitle"
+          name="seoTitle"
+          type="text"
+          value={seoTitle}
+          onChange={(event) => setSeoTitle(event.target.value)}
+          maxLength={70}
+          aria-invalid={showValidation && Boolean(errors.seoTitle)}
+        />
+        {showValidation && errors.seoTitle ? (
+          <p style={{ color: "#b42318", margin: 0 }}>{errors.seoTitle}</p>
+        ) : (
+          <p style={{ color: "#475467", margin: 0, fontSize: "14px" }}>
+            Opcional. Máximo 70 caracteres.
+          </p>
+        )}
+      </div>
+
+      <div className="stack">
+        <label htmlFor="seoDescription">SEO description</label>
+        <textarea
+          id="seoDescription"
+          name="seoDescription"
+          rows={3}
+          value={seoDescription}
+          onChange={(event) => setSeoDescription(event.target.value)}
+          maxLength={160}
+          aria-invalid={showValidation && Boolean(errors.seoDescription)}
+        />
+        {showValidation && errors.seoDescription ? (
+          <p style={{ color: "#b42318", margin: 0 }}>
+            {errors.seoDescription}
+          </p>
+        ) : (
+          <p style={{ color: "#475467", margin: 0, fontSize: "14px" }}>
+            Opcional. Máximo 160 caracteres.
+          </p>
+        )}
+      </div>
+
+      <div className="stack">
         <label htmlFor="content">Contenido</label>
         <textarea
           id="content"
@@ -260,11 +393,7 @@ export default function PostForm({
         </p>
       ) : null}
 
-      <SubmitButtons
-        isEditMode={isEditMode}
-        isPublished={isPublished}
-        hasChanges={hasChanges}
-      />
+      <SubmitButton isEditMode={isEditMode} hasChanges={hasChanges} />
     </form>
   );
 }

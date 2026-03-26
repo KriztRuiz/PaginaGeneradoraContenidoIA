@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { PostStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/auth";
 import ConfirmDelete from "@/components/confirm-delete";
@@ -7,10 +8,23 @@ import FormMessage from "@/components/form-message";
 type AdminPostsPageProps = {
   searchParams?: Promise<{
     category?: string;
+    postStatus?: string;
     status?: string;
     error?: string;
   }>;
 };
+
+const STATUS_OPTIONS: Array<{ value: PostStatus; label: string }> = [
+  { value: PostStatus.DRAFT, label: "Borrador" },
+  { value: PostStatus.PENDING, label: "Pendiente" },
+  { value: PostStatus.SCHEDULED, label: "Programado" },
+  { value: PostStatus.PUBLISHED, label: "Publicado" },
+  { value: PostStatus.REJECTED, label: "Rechazado" },
+];
+
+function isPostStatus(value?: string): value is PostStatus {
+  return !!value && Object.values(PostStatus).includes(value as PostStatus);
+}
 
 function formatDate(date: Date | null) {
   if (!date) return "—";
@@ -26,6 +40,13 @@ function getPageMessage(status?: string, error?: string) {
     return {
       type: "success" as const,
       message: "Post creado correctamente.",
+    };
+  }
+
+  if (status === "updated") {
+    return {
+      type: "success" as const,
+      message: "Post actualizado correctamente.",
     };
   }
 
@@ -53,8 +74,57 @@ function getPageMessage(status?: string, error?: string) {
   return null;
 }
 
-function formatStatus(status: "DRAFT" | "PUBLISHED") {
-  return status === "PUBLISHED" ? "Publicado" : "Borrador";
+function formatStatus(status: PostStatus) {
+  switch (status) {
+    case PostStatus.DRAFT:
+      return "Borrador";
+    case PostStatus.PENDING:
+      return "Pendiente";
+    case PostStatus.SCHEDULED:
+      return "Programado";
+    case PostStatus.PUBLISHED:
+      return "Publicado";
+    case PostStatus.REJECTED:
+      return "Rechazado";
+    default:
+      return status;
+  }
+}
+
+function getStatusBadgeStyle(status: PostStatus) {
+  switch (status) {
+    case PostStatus.PUBLISHED:
+      return {
+        backgroundColor: "#ecfdf3",
+        color: "#067647",
+        border: "1px solid #abefc6",
+      };
+    case PostStatus.SCHEDULED:
+      return {
+        backgroundColor: "#eff8ff",
+        color: "#175cd3",
+        border: "1px solid #b2ddff",
+      };
+    case PostStatus.PENDING:
+      return {
+        backgroundColor: "#fffaeb",
+        color: "#b54708",
+        border: "1px solid #fedf89",
+      };
+    case PostStatus.REJECTED:
+      return {
+        backgroundColor: "#fef3f2",
+        color: "#b42318",
+        border: "1px solid #fecdca",
+      };
+    case PostStatus.DRAFT:
+    default:
+      return {
+        backgroundColor: "#f2f4f7",
+        color: "#344054",
+        border: "1px solid #d0d5dd",
+      };
+  }
 }
 
 function getExcerpt(excerpt: string | null, content: string) {
@@ -71,6 +141,24 @@ function getExcerpt(excerpt: string | null, content: string) {
   return `${plainContent.slice(0, 180).trim()}...`;
 }
 
+function buildAdminPostsHref(params: {
+  category?: string;
+  postStatus?: string;
+}) {
+  const search = new URLSearchParams();
+
+  if (params.category) {
+    search.set("category", params.category);
+  }
+
+  if (params.postStatus) {
+    search.set("postStatus", params.postStatus);
+  }
+
+  const query = search.toString();
+  return query ? `/admin/posts?${query}` : "/admin/posts";
+}
+
 export default async function AdminPostsPage({
   searchParams,
 }: AdminPostsPageProps) {
@@ -78,6 +166,9 @@ export default async function AdminPostsPage({
 
   const resolvedSearchParams = (await searchParams) ?? {};
   const selectedCategorySlug = resolvedSearchParams.category;
+  const selectedPostStatus = isPostStatus(resolvedSearchParams.postStatus)
+    ? resolvedSearchParams.postStatus
+    : undefined;
 
   const pageMessage = getPageMessage(
     resolvedSearchParams.status,
@@ -101,16 +192,21 @@ export default async function AdminPostsPage({
       },
     }),
     prisma.post.findMany({
-      where: selectedCategorySlug
-        ? {
-            category: {
-              slug: selectedCategorySlug,
-            },
-          }
-        : undefined,
-      orderBy: {
-        updatedAt: "desc",
+      where: {
+        ...(selectedCategorySlug
+          ? {
+              category: {
+                slug: selectedCategorySlug,
+              },
+            }
+          : {}),
+        ...(selectedPostStatus
+          ? {
+              status: selectedPostStatus,
+            }
+          : {}),
       },
+      orderBy: [{ updatedAt: "desc" }],
       select: {
         id: true,
         title: true,
@@ -119,6 +215,8 @@ export default async function AdminPostsPage({
         content: true,
         status: true,
         updatedAt: true,
+        publishedAt: true,
+        scheduledAt: true,
         category: {
           select: {
             id: true,
@@ -151,7 +249,7 @@ export default async function AdminPostsPage({
 
         <div className="actions">
           <Link
-            href="/admin/posts"
+            href={buildAdminPostsHref({ postStatus: selectedPostStatus })}
             aria-current={!selectedCategorySlug ? "page" : undefined}
           >
             Todas
@@ -160,12 +258,43 @@ export default async function AdminPostsPage({
           {categories.map((category) => (
             <Link
               key={category.id}
-              href={`/admin/posts?category=${category.slug}`}
+              href={buildAdminPostsHref({
+                category: category.slug,
+                postStatus: selectedPostStatus,
+              })}
               aria-current={
                 selectedCategorySlug === category.slug ? "page" : undefined
               }
             >
               {category.name} ({category._count.posts})
+            </Link>
+          ))}
+        </div>
+      </section>
+
+      <section className="stack" style={{ marginBottom: "24px" }}>
+        <h2>Filtrar por estado</h2>
+
+        <div className="actions">
+          <Link
+            href={buildAdminPostsHref({ category: selectedCategorySlug })}
+            aria-current={!selectedPostStatus ? "page" : undefined}
+          >
+            Todos
+          </Link>
+
+          {STATUS_OPTIONS.map((option) => (
+            <Link
+              key={option.value}
+              href={buildAdminPostsHref({
+                category: selectedCategorySlug,
+                postStatus: option.value,
+              })}
+              aria-current={
+                selectedPostStatus === option.value ? "page" : undefined
+              }
+            >
+              {option.label}
             </Link>
           ))}
         </div>
@@ -177,11 +306,31 @@ export default async function AdminPostsPage({
         <div className="stack">
           {posts.map((post) => (
             <article key={post.id} className="card">
-              <h2>{post.title}</h2>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "12px",
+                  flexWrap: "wrap",
+                  marginBottom: "8px",
+                }}
+              >
+                <h2 style={{ margin: 0 }}>{post.title}</h2>
 
-              <p>
-                <strong>Estado:</strong> {formatStatus(post.status)}
-              </p>
+                <span
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    padding: "4px 10px",
+                    borderRadius: "999px",
+                    fontSize: "12px",
+                    fontWeight: 600,
+                    ...getStatusBadgeStyle(post.status),
+                  }}
+                >
+                  {formatStatus(post.status)}
+                </span>
+              </div>
 
               <p>
                 <strong>Slug:</strong> {post.slug}
@@ -194,6 +343,14 @@ export default async function AdminPostsPage({
 
               <p>
                 <strong>Extracto:</strong> {getExcerpt(post.excerpt, post.content)}
+              </p>
+
+              <p>
+                <strong>Programado:</strong> {formatDate(post.scheduledAt)}
+              </p>
+
+              <p>
+                <strong>Publicado:</strong> {formatDate(post.publishedAt)}
               </p>
 
               <p>
