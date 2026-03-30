@@ -4,6 +4,7 @@ import type { PostStatus } from "@prisma/client";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useFormStatus } from "react-dom";
 import FormMessage from "@/components/form-message";
+import type { AiPostFormSeed } from "@/lib/ai/ai-schemas";
 import { validatePostInput } from "@/lib/post-validation";
 
 type CategoryOption = {
@@ -25,6 +26,7 @@ type PostFormProps = {
     categoryId?: string | null;
     status: PostStatus;
   };
+  aiSeed?: AiPostFormSeed | null;
   errorMessage?: string;
   successMessage?: string;
 };
@@ -51,6 +53,42 @@ function slugify(value: string) {
     .trim()
     .replace(/\s+/g, "-")
     .replace(/-+/g, "-");
+}
+
+function normalizeText(value: string) {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function findCategoryIdByName(
+  categories: CategoryOption[],
+  categoryName?: string,
+) {
+  if (!categoryName) return "";
+
+  const normalizedTarget = normalizeText(categoryName);
+
+  const exactMatch = categories.find(
+    (category) => normalizeText(category.name) === normalizedTarget,
+  );
+
+  if (exactMatch) {
+    return exactMatch.id;
+  }
+
+  const includesMatch = categories.find((category) =>
+    normalizeText(category.name).includes(normalizedTarget),
+  );
+
+  if (includesMatch) {
+    return includesMatch.id;
+  }
+
+  return "";
 }
 
 function toDateTimeLocalValue(value?: string | null) {
@@ -92,6 +130,7 @@ export default function PostForm({
   action,
   categories = [],
   initialData,
+  aiSeed,
   errorMessage,
   successMessage,
 }: PostFormProps) {
@@ -101,19 +140,19 @@ export default function PostForm({
   const [content, setContent] = useState(initialData?.content ?? "");
   const [seoTitle, setSeoTitle] = useState(initialData?.seoTitle ?? "");
   const [seoDescription, setSeoDescription] = useState(
-    initialData?.seoDescription ?? ""
+    initialData?.seoDescription ?? "",
   );
   const [scheduledAt, setScheduledAt] = useState(
-    toDateTimeLocalValue(initialData?.scheduledAt)
+    toDateTimeLocalValue(initialData?.scheduledAt),
   );
   const [categoryId, setCategoryId] = useState(initialData?.categoryId ?? "");
   const [status, setStatus] = useState<PostStatus>(
-    initialData?.status ?? "DRAFT"
+    initialData?.status ?? "DRAFT",
   );
   const [showValidation, setShowValidation] = useState(false);
   const [slugTouched, setSlugTouched] = useState(Boolean(initialData?.slug));
 
-  const isEditMode = Boolean(initialData);
+  const isEditMode = Boolean(initialData?.title || initialData?.content);
 
   const initialTitle = initialData?.title ?? "";
   const initialSlug = initialData?.slug ?? "";
@@ -130,6 +169,24 @@ export default function PostForm({
       setSlug(slugify(title));
     }
   }, [title, slugTouched]);
+
+  useEffect(() => {
+    if (isEditMode || !aiSeed) {
+      return;
+    }
+
+    setTitle(aiSeed.title);
+    setSlug(slugify(aiSeed.title));
+    setSlugTouched(false);
+    setExcerpt(aiSeed.excerpt);
+    setContent(aiSeed.content);
+    setSeoTitle(aiSeed.seoTitle);
+    setSeoDescription(aiSeed.seoDescription);
+    setCategoryId(findCategoryIdByName(categories, aiSeed.categoryName));
+    setScheduledAt("");
+    setStatus("DRAFT");
+    setShowValidation(false);
+  }, [aiSeed, categories, isEditMode]);
 
   const hasChanges = useMemo(() => {
     return (

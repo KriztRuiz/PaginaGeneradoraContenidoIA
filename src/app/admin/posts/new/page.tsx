@@ -1,6 +1,6 @@
 import Link from "next/link";
-import PostForm from "@/components/post-form";
 import { createPostAction } from "@/actions/post-actions";
+import NewPostEditor from "@/components/new-post-editor";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
@@ -56,7 +56,7 @@ export default async function NewPostPage({ searchParams }: NewPostPageProps) {
     <main className="container">
       <h1>Nuevo post</h1>
 
-      <PostForm
+      <NewPostEditor
         action={createPostAction}
         categories={categories}
         errorMessage={errorMessage}
