@@ -1,17 +1,24 @@
 import OpenAI from "openai";
 
 import {
-  GENERATED_POST_DRAFT_SCHEMA_NAME,
-  generatePostDraftInputSchema,
+  GENERATED_POST_DRAFT_FULL_SCHEMA_NAME,
+  aiDraftRequestSchema,
+  buildGeneratedPostPartialJsonSchema,
+  buildGeneratedPostDraftPartialSchemaName,
   generatedPostDraftJsonSchema,
-  type GeneratePostDraftInput,
+  type GenerateOrRegeneratePostDraftInput,
   type GeneratedPostDraft,
+  type GeneratedPostDraftPartial,
 } from "./ai-schemas";
 import {
   AI_POST_DRAFT_SYSTEM_PROMPT,
   buildGeneratePostDraftUserPrompt,
+  buildRegeneratePostDraftUserPrompt,
 } from "./ai-prompts";
-import { normalizeGeneratedPostDraft } from "./ai-mappers";
+import {
+  normalizeGeneratedPostDraft,
+  normalizeRegeneratedPostDraft,
+} from "./ai-mappers";
 
 type GeneratePostDraftErrorCode =
   | "CONFIGURATION_ERROR"
@@ -29,11 +36,19 @@ export class GeneratePostDraftError extends Error {
   }
 }
 
-export type GeneratePostDraftResult = {
-  draft: GeneratedPostDraft;
-  model: string;
-  requestId: string | null;
-};
+export type GeneratePostDraftResult =
+  | {
+      mode: "full";
+      draft: GeneratedPostDraft;
+      model: string;
+      requestId: string | null;
+    }
+  | {
+      mode: "partial";
+      draft: GeneratedPostDraftPartial;
+      model: string;
+      requestId: string | null;
+    };
 
 function getAiConfig() {
   const apiKey = process.env.AI_API_KEY?.trim();
@@ -71,10 +86,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-function readStringProp(
-  value: unknown,
-  ...keys: string[]
-): string | null {
+function readStringProp(value: unknown, ...keys: string[]): string | null {
   if (!isRecord(value)) return null;
 
   for (const key of keys) {
@@ -99,12 +111,32 @@ const DEFAULT_REASONING_EFFORT: "low" = "low";
 const DEFAULT_MAX_OUTPUT_TOKENS = 8000;
 
 export async function generatePostDraft(
-  rawInput: GeneratePostDraftInput,
+  rawInput: GenerateOrRegeneratePostDraftInput,
 ): Promise<GeneratePostDraftResult> {
-  const input = generatePostDraftInputSchema.parse(rawInput);
+  const input = aiDraftRequestSchema.parse(rawInput);
   const { apiKey, model } = getAiConfig();
 
   const client = new OpenAI({ apiKey });
+
+  const responseFormat =
+    input.mode === "full"
+      ? {
+          type: "json_schema" as const,
+          name: GENERATED_POST_DRAFT_FULL_SCHEMA_NAME,
+          strict: true,
+          schema: generatedPostDraftJsonSchema,
+        }
+      : {
+          type: "json_schema" as const,
+          name: buildGeneratedPostDraftPartialSchemaName(input.targetFields),
+          strict: true,
+            schema: buildGeneratedPostPartialJsonSchema(input.targetFields),
+        };
+
+  const userPrompt =
+    input.mode === "full"
+      ? buildGeneratePostDraftUserPrompt(input)
+      : buildRegeneratePostDraftUserPrompt(input);
 
   try {
     const response = await client.responses.create({
@@ -121,16 +153,11 @@ export async function generatePostDraft(
         },
         {
           role: "user",
-          content: buildGeneratePostDraftUserPrompt(input),
+          content: userPrompt,
         },
       ],
       text: {
-        format: {
-          type: "json_schema",
-          name: GENERATED_POST_DRAFT_SCHEMA_NAME,
-          strict: true,
-          schema: generatedPostDraftJsonSchema,
-        },
+        format: responseFormat,
       },
     });
 
@@ -172,9 +199,22 @@ export async function generatePostDraft(
     }
 
     const parsedJson = parseGeneratedDraftJson(rawText);
-    const draft = normalizeGeneratedPostDraft(parsedJson);
+
+    if (input.mode === "full") {
+      const draft = normalizeGeneratedPostDraft(parsedJson);
+
+      return {
+        mode: "full",
+        draft,
+        model,
+        requestId,
+      };
+    }
+
+    const draft = normalizeRegeneratedPostDraft(parsedJson, input.targetFields);
 
     return {
+      mode: "partial",
       draft,
       model,
       requestId,

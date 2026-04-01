@@ -1,15 +1,29 @@
 "use client";
 
 import type { PostStatus } from "@prisma/client";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
+
 import FormMessage from "@/components/form-message";
-import type { AiPostFormSeed } from "@/lib/ai/ai-schemas";
+import type {
+  AiPostFormPatch,
+  AiPostFormSeed,
+  AiPostFormSnapshot,
+  AiRegenerableField,
+} from "@/lib/ai/ai-schemas";
+import { findBestCategoryIdByName } from "@/lib/category-validation";
 import { validatePostInput } from "@/lib/post-validation";
 
 type CategoryOption = {
   id: string;
   name: string;
+};
+
+type AiCommand = {
+  id: number;
+  mode: "full" | "partial";
+  data: AiPostFormSeed | AiPostFormPatch;
+  changedFields: AiRegenerableField[];
 };
 
 type PostFormProps = {
@@ -26,7 +40,8 @@ type PostFormProps = {
     categoryId?: string | null;
     status: PostStatus;
   };
-  aiSeed?: AiPostFormSeed | null;
+  aiCommand?: AiCommand | null;
+  onSnapshotChange?: (snapshot: AiPostFormSnapshot) => void;
   errorMessage?: string;
   successMessage?: string;
 };
@@ -53,42 +68,6 @@ function slugify(value: string) {
     .trim()
     .replace(/\s+/g, "-")
     .replace(/-+/g, "-");
-}
-
-function normalizeText(value: string) {
-  return value
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function findCategoryIdByName(
-  categories: CategoryOption[],
-  categoryName?: string,
-) {
-  if (!categoryName) return "";
-
-  const normalizedTarget = normalizeText(categoryName);
-
-  const exactMatch = categories.find(
-    (category) => normalizeText(category.name) === normalizedTarget,
-  );
-
-  if (exactMatch) {
-    return exactMatch.id;
-  }
-
-  const includesMatch = categories.find((category) =>
-    normalizeText(category.name).includes(normalizedTarget),
-  );
-
-  if (includesMatch) {
-    return includesMatch.id;
-  }
-
-  return "";
 }
 
 function toDateTimeLocalValue(value?: string | null) {
@@ -126,11 +105,24 @@ function SubmitButton({ isEditMode, hasChanges }: SubmitButtonProps) {
   );
 }
 
+function isFullAiSeed(
+  data: AiPostFormSeed | AiPostFormPatch,
+): data is AiPostFormSeed {
+  return (
+    typeof data.title === "string" &&
+    typeof data.excerpt === "string" &&
+    typeof data.content === "string" &&
+    typeof data.seoTitle === "string" &&
+    typeof data.seoDescription === "string"
+  );
+}
+
 export default function PostForm({
   action,
   categories = [],
   initialData,
-  aiSeed,
+  aiCommand,
+  onSnapshotChange,
   errorMessage,
   successMessage,
 }: PostFormProps) {
@@ -164,6 +156,8 @@ export default function PostForm({
   const initialCategoryId = initialData?.categoryId ?? "";
   const initialStatus = initialData?.status ?? "DRAFT";
 
+  const lastAppliedAiCommandIdRef = useRef<number | null>(null);
+
   useEffect(() => {
     if (!slugTouched) {
       setSlug(slugify(title));
@@ -171,22 +165,99 @@ export default function PostForm({
   }, [title, slugTouched]);
 
   useEffect(() => {
-    if (isEditMode || !aiSeed) {
+    if (!aiCommand) {
       return;
     }
 
-    setTitle(aiSeed.title);
-    setSlug(slugify(aiSeed.title));
-    setSlugTouched(false);
-    setExcerpt(aiSeed.excerpt);
-    setContent(aiSeed.content);
-    setSeoTitle(aiSeed.seoTitle);
-    setSeoDescription(aiSeed.seoDescription);
-    setCategoryId(findCategoryIdByName(categories, aiSeed.categoryName));
-    setScheduledAt("");
-    setStatus("DRAFT");
+    if (lastAppliedAiCommandIdRef.current === aiCommand.id) {
+      return;
+    }
+
+    lastAppliedAiCommandIdRef.current = aiCommand.id;
+
+    if (aiCommand.mode === "full") {
+      const data = aiCommand.data;
+
+      if (!isFullAiSeed(data)) {
+        return;
+      }
+
+      setTitle(data.title);
+      setExcerpt(data.excerpt);
+      setContent(data.content);
+      setSeoTitle(data.seoTitle);
+      setSeoDescription(data.seoDescription);
+
+      if (!slugTouched || !slug.trim()) {
+        setSlugTouched(false);
+        setSlug(slugify(data.title));
+      }
+
+      setCategoryId(findBestCategoryIdByName(categories, data.categoryName));
+      setScheduledAt("");
+      setStatus("DRAFT");
+      setShowValidation(false);
+
+      return;
+    }
+
+    const patch = aiCommand.data;
+
+    if (typeof patch.title === "string") {
+      setTitle(patch.title);
+
+      if (!slugTouched || !slug.trim()) {
+        setSlugTouched(false);
+        setSlug(slugify(patch.title));
+      }
+    }
+
+    if (typeof patch.excerpt === "string") {
+      setExcerpt(patch.excerpt);
+    }
+
+    if (typeof patch.content === "string") {
+      setContent(patch.content);
+    }
+
+    if (typeof patch.seoTitle === "string") {
+      setSeoTitle(patch.seoTitle);
+    }
+
+    if (typeof patch.seoDescription === "string") {
+      setSeoDescription(patch.seoDescription);
+    }
+
     setShowValidation(false);
-  }, [aiSeed, categories, isEditMode]);
+  }, [aiCommand, categories, slug, slugTouched]);
+
+  useEffect(() => {
+    if (!onSnapshotChange) {
+      return;
+    }
+
+    const selectedCategoryName =
+      categories.find((category) => category.id === categoryId)?.name ??
+      undefined;
+
+    onSnapshotChange({
+      title,
+      excerpt,
+      content,
+      seoTitle,
+      seoDescription,
+      categoryName: selectedCategoryName,
+    });
+  }, [
+    title,
+    excerpt,
+    content,
+    seoTitle,
+    seoDescription,
+    categoryId,
+    categories,
+    onSnapshotChange,
+  ]);
 
   const hasChanges = useMemo(() => {
     return (

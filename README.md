@@ -1,12 +1,12 @@
 # PaginaGeneradoraContenidoIA
 
-MVP de una plataforma de contenido construida con **Next.js**, **TypeScript**, **Prisma**, **PostgreSQL**, autenticación por credenciales y generación asistida por IA para crear borradores editables desde el panel de administración.
+MVP de una plataforma de contenido construida con **Next.js**, **TypeScript**, **Prisma**, **PostgreSQL**, autenticación por credenciales y generación asistida por IA para crear y mejorar borradores editables desde el panel de administración.
 
 ---
 
 ## Estado actual
 
-**Fase 5 cerrada y validada.**
+**Fase 6 cerrada y validada.**
 
 ### Funcionalidades incluidas
 
@@ -33,8 +33,18 @@ MVP de una plataforma de contenido construida con **Next.js**, **TypeScript**, *
 - `sitemap.xml`
 - publicación automática de posts programados mediante cron protegido
 - historial simple de revisiones visible en admin
-- generación de borradores con IA dentro de `/admin/posts/new`
+- generación completa de borradores con IA dentro de `/admin/posts/new`
+- regeneración parcial de borradores con IA
+- regeneración específica de:
+  - `title`
+  - `excerpt`
+  - `content`
+  - `seoTitle`
+  - `seoDescription`
 - inyección del borrador generado al formulario real del post
+- preservación de campos no seleccionados durante regeneración parcial
+- mejor mapeo tolerante de categorías sugeridas
+- UX más clara para distinguir entre generación completa y regeneración parcial
 - edición manual del contenido generado antes de guardar
 - manejo de errores visibles en el bloque de IA
 
@@ -54,6 +64,8 @@ MVP de una plataforma de contenido construida con **Next.js**, **TypeScript**, *
 - multi-tenant
 - historial avanzado de prompts y consumo de IA
 - múltiples proveedores de IA
+- aprobación automática de contenido
+- publicación automática desde la IA sin revisión humana
 
 ---
 
@@ -338,7 +350,7 @@ Campos principales:
 
 ---
 
-## 5. Crear un nuevo post con IA asistida
+## 5. Crear o mejorar un post con IA asistida
 
 Ruta:
 
@@ -359,18 +371,13 @@ Generar borrador con IA
 - tono
 - categoría sugerida
 
-### Qué hace este bloque
+### Qué puede hacer ahora
 
-- valida que el tema exista
-- envía la solicitud al backend
-- llama al proveedor de IA desde el servidor
-- exige una respuesta estructurada
-- normaliza el resultado
-- rellena automáticamente el formulario real del post
+El bloque IA ya soporta dos acciones distintas:
 
-### Qué genera la IA
+#### 1. Generación completa
 
-El sistema solicita estas piezas:
+Genera un borrador completo con:
 
 - `title`
 - `excerpt`
@@ -379,20 +386,43 @@ El sistema solicita estas piezas:
 - `seoDescription`
 - `suggestedCategoryName`
 
-### Qué pasa después
+Después:
 
-Después de generar el borrador:
-
-- el título se carga en el formulario
-- el extracto se carga en el formulario
-- el contenido se carga en el formulario
-- el SEO title se carga en el formulario
-- el SEO description se carga en el formulario
+- el formulario principal se rellena automáticamente
 - el sistema intenta mapear la categoría sugerida a una categoría existente
 - el estado queda en `DRAFT`
 - el admin puede editar manualmente todo antes de guardar
 
-### Límites reales de la IA en esta fase
+#### 2. Regeneración parcial
+
+Permite regenerar solo campos específicos del borrador actual:
+
+- `title`
+- `excerpt`
+- `content`
+- `seoTitle`
+- `seoDescription`
+
+### Regla importante de regeneración parcial
+
+Si regeneras solo uno o varios campos:
+
+- solo esos campos cambian
+- el resto del borrador se conserva
+- no se publica nada automáticamente
+- el contenido sigue siendo editable por humano
+
+### Qué hace internamente este bloque
+
+- valida el input antes de enviar
+- llama al backend desde una Server Action
+- exige respuesta estructurada al proveedor de IA
+- normaliza la salida
+- aplica generación completa o parche parcial según el modo
+- conserva el resto del formulario cuando la acción es parcial
+- muestra errores visibles sin romper la página
+
+### Qué no hace la IA en esta fase
 
 La IA en esta fase:
 
@@ -564,10 +594,11 @@ Invoke-RestMethod -Method Post -Uri "http://localhost:3000/api/cron/publish-sche
 1. iniciar sesión en `/admin/login`
 2. entrar a `/admin/posts/new`
 3. completar el bloque “Generar borrador con IA”
-4. pulsar “Generar borrador”
+4. pulsar “Generar borrador completo”
 5. revisar el contenido cargado en el formulario inferior
 6. corregir manualmente lo necesario
-7. guardar el post usando el flujo editorial actual
+7. si hace falta, usar regeneración parcial
+8. guardar el post usando el flujo editorial actual
 
 ### Flujo con programación
 
@@ -607,7 +638,7 @@ npx prisma studio
 
 ---
 
-## Manejo de errores conocido en Fase 5
+## Manejo de errores conocido en Fase 6
 
 El flujo de IA ya contempla estos casos:
 
@@ -617,12 +648,15 @@ El flujo de IA ya contempla estos casos:
 - respuesta inválida del proveedor
 - error del proveedor
 - cuota agotada o facturación inactiva de la API
+- regeneración parcial con selección vacía
+- intento de regeneración parcial sin borrador base
 
 Si la generación falla:
 
 - se muestra un mensaje visible
 - no se rompe la página
 - el admin puede corregir el input y reintentar
+- el borrador actual no se pierde
 
 ---
 
@@ -682,7 +716,6 @@ Se validó correctamente:
 - edición manual posterior al generado
 - guardado correcto del post generado con IA
 - supervivencia del flujo manual sin IA
-- regeneración de borradores
 - categoría inexistente sin romper el flujo
 - manejo de errores del proveedor sin romper la UI
 - protección del flujo por sesión
@@ -691,38 +724,68 @@ Se validó correctamente:
 
 ---
 
-## Criterio de terminado de Fase 5
+## Pruebas funcionales validadas en Fase 6
 
-Fase 5 se considera terminada porque ya se cumple esto:
+Se validó correctamente:
 
-- el admin puede generar un borrador con IA desde `/admin/posts/new`
-- el resultado se valida y normaliza
-- el formulario principal se rellena automáticamente
-- el contenido sigue siendo editable
+- generación completa de borrador
+- regeneración solo de `title`
+- regeneración solo de `excerpt`
+- regeneración solo de `content`
+- regeneración solo de `seoTitle`
+- regeneración solo de `seoDescription`
+- regeneración parcial sin sobrescribir campos no seleccionados
+- regeneraciones consecutivas sin romper el estado del editor
+- guardado correcto después de regeneración parcial
+- supervivencia total del flujo manual sin IA
+- no publicación automática tras generar o regenerar con IA
+- manejo de errores sin perder el borrador actual
+
+---
+
+## Criterio de terminado de Fase 6
+
+Fase 6 se considera terminada porque ya se cumple esto:
+
+- el admin puede generar un borrador completo con IA desde `/admin/posts/new`
+- el admin puede regenerar solo partes específicas del borrador
+- la regeneración parcial no pisa campos no seleccionados
+- el formulario principal sigue siendo editable
 - el guardado usa el flujo editorial existente
 - el flujo manual sigue funcionando
 - los errores no rompen el admin
 - no hay publicación automática desde la IA
+- el mapeo de categorías sugeridas es más tolerante a coincidencias razonables
+- la UX distingue mejor entre generar y regenerar
 
 ---
 
 ## Próxima fase sugerida
 
-La siguiente fase recomendada puede ir por una de estas rutas:
+La siguiente fase recomendada ya no es calidad editorial básica, porque esa ruta quedó cubierta en Fase 6.
 
-### Ruta 1: calidad editorial
+Las rutas razonables para la siguiente fase son:
 
-- regenerar solo partes específicas
-- mejorar prompts
-- mejorar mapeo de categorías
-- pulir UX del generador
+### Ruta 1: herramientas editoriales útiles
+
+- historial simple de generaciones IA
+- botón para copiar variantes
+- ayudas editoriales por campo
+- mejora de preview editorial
 
 ### Ruta 2: producto
 
-- historial de generaciones
-- métricas de uso de IA
 - generación de copy para redes
-- nuevas herramientas editoriales asistidas
+- estados de publicación externa
+- registro de intentos y errores por canal
+- primer flujo manual de publicación externa asistida
+
+### Ruta 3: estabilidad
+
+- pruebas automatizadas clave
+- limpieza de utilidades
+- endurecimiento de validaciones
+- documentación técnica más detallada
 
 ---
 

@@ -1,9 +1,15 @@
 import type {
+  AiCurrentDraftContext,
+  AiPostFormPatch,
   AiPostFormSeed,
+  AiPostFormSnapshot,
+  AiRegenerableField,
   GeneratedPostDraft,
+  GeneratedPostDraftPartial,
 } from "./ai-schemas";
 import {
   AI_GENERATION_LIMITS,
+  buildGeneratedPostPartialSchema,
   generatedPostDraftSchema,
 } from "./ai-schemas";
 
@@ -36,27 +42,34 @@ function normalizeBlockText(value: string, max: number): string {
   return clampText(collapseBlockWhitespace(value), max);
 }
 
+function normalizeFieldValue(field: AiRegenerableField, value: string) {
+  switch (field) {
+    case "title":
+      return normalizeInlineText(value, AI_GENERATION_LIMITS.titleMax);
+    case "excerpt":
+      return normalizeInlineText(value, AI_GENERATION_LIMITS.excerptMax);
+    case "content":
+      return normalizeBlockText(value, AI_GENERATION_LIMITS.contentMax);
+    case "seoTitle":
+      return normalizeInlineText(value, AI_GENERATION_LIMITS.seoTitleMax);
+    case "seoDescription":
+      return normalizeInlineText(value, AI_GENERATION_LIMITS.seoDescriptionMax);
+    default: {
+      const exhaustiveCheck: never = field;
+      return exhaustiveCheck;
+    }
+  }
+}
+
 export function normalizeGeneratedPostDraft(raw: unknown): GeneratedPostDraft {
   const parsed = generatedPostDraftSchema.parse(raw);
 
   const normalized: GeneratedPostDraft = {
-    title: normalizeInlineText(parsed.title, AI_GENERATION_LIMITS.titleMax),
-    excerpt: normalizeInlineText(
-      parsed.excerpt,
-      AI_GENERATION_LIMITS.excerptMax,
-    ),
-    content: normalizeBlockText(
-      parsed.content,
-      AI_GENERATION_LIMITS.contentMax,
-    ),
-    seoTitle: normalizeInlineText(
-      parsed.seoTitle,
-      AI_GENERATION_LIMITS.seoTitleMax,
-    ),
-    seoDescription: normalizeInlineText(
-      parsed.seoDescription,
-      AI_GENERATION_LIMITS.seoDescriptionMax,
-    ),
+    title: normalizeFieldValue("title", parsed.title),
+    excerpt: normalizeFieldValue("excerpt", parsed.excerpt),
+    content: normalizeFieldValue("content", parsed.content),
+    seoTitle: normalizeFieldValue("seoTitle", parsed.seoTitle),
+    seoDescription: normalizeFieldValue("seoDescription", parsed.seoDescription),
     suggestedCategoryName: parsed.suggestedCategoryName
       ? normalizeInlineText(
           parsed.suggestedCategoryName,
@@ -66,6 +79,21 @@ export function normalizeGeneratedPostDraft(raw: unknown): GeneratedPostDraft {
   };
 
   return generatedPostDraftSchema.parse(normalized);
+}
+
+export function normalizeRegeneratedPostDraft(
+  raw: unknown,
+  targetFields: readonly AiRegenerableField[],
+): GeneratedPostDraftPartial {
+  const partialSchema = buildGeneratedPostPartialSchema(targetFields);
+  const parsed = partialSchema.parse(raw);
+
+  const normalizedEntries = Object.entries(parsed).map(([field, value]) => [
+    field,
+    normalizeFieldValue(field as AiRegenerableField, String(value)),
+  ]);
+
+  return partialSchema.parse(Object.fromEntries(normalizedEntries));
 }
 
 export function mapGeneratedDraftToPostFormSeed(
@@ -79,4 +107,46 @@ export function mapGeneratedDraftToPostFormSeed(
     seoDescription: draft.seoDescription,
     categoryName: draft.suggestedCategoryName,
   };
+}
+
+export function mapRegeneratedDraftToPostFormPatch(
+  draft: GeneratedPostDraftPartial,
+): AiPostFormPatch {
+  return {
+    ...(typeof draft.title === "string" ? { title: draft.title } : {}),
+    ...(typeof draft.excerpt === "string" ? { excerpt: draft.excerpt } : {}),
+    ...(typeof draft.content === "string" ? { content: draft.content } : {}),
+    ...(typeof draft.seoTitle === "string" ? { seoTitle: draft.seoTitle } : {}),
+    ...(typeof draft.seoDescription === "string"
+      ? { seoDescription: draft.seoDescription }
+      : {}),
+  };
+}
+
+export function pickAiCurrentDraftContext(
+  snapshot?: AiPostFormSnapshot | null,
+): AiCurrentDraftContext {
+  if (!snapshot) {
+    return {};
+  }
+
+  return {
+    title: snapshot.title.trim() || undefined,
+    excerpt: snapshot.excerpt.trim() || undefined,
+    content: snapshot.content.trim() || undefined,
+    seoTitle: snapshot.seoTitle.trim() || undefined,
+    seoDescription: snapshot.seoDescription.trim() || undefined,
+  };
+}
+
+export function hasAnyDraftContent(snapshot?: AiPostFormSnapshot | null) {
+  if (!snapshot) return false;
+
+  return [
+    snapshot.title,
+    snapshot.excerpt,
+    snapshot.content,
+    snapshot.seoTitle,
+    snapshot.seoDescription,
+  ].some((value) => value.trim().length > 0);
 }

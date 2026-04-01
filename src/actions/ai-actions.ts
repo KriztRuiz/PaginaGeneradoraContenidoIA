@@ -3,11 +3,17 @@
 import { ZodError } from "zod";
 
 import { auth } from "@/auth";
-import { mapGeneratedDraftToPostFormSeed } from "@/lib/ai/ai-mappers";
 import {
+  mapGeneratedDraftToPostFormSeed,
+  mapRegeneratedDraftToPostFormPatch,
+} from "@/lib/ai/ai-mappers";
+import {
+  AI_REGENERABLE_FIELDS,
+  aiDraftRequestSchema,
+  type AiPostFormPatch,
   type AiPostFormSeed,
-  type GeneratePostDraftInput,
-  generatePostDraftInputSchema,
+  type AiRegenerableField,
+  type GenerateOrRegeneratePostDraftInput,
 } from "@/lib/ai/ai-schemas";
 import {
   GeneratePostDraftError,
@@ -15,13 +21,15 @@ import {
 } from "@/lib/ai/generate-post-draft";
 
 type GenerateDraftFieldErrors = Partial<
-  Record<keyof GeneratePostDraftInput, string[]>
+  Record<"topic" | "context" | "tone" | "categoryName" | "targetFields", string[]>
 >;
 
 export type GeneratePostDraftActionResult =
   | {
       ok: true;
-      data: AiPostFormSeed;
+      mode: "full" | "partial";
+      data: AiPostFormSeed | AiPostFormPatch;
+      changedFields: AiRegenerableField[];
       meta: {
         model: string;
         requestId: string | null;
@@ -40,7 +48,17 @@ function mapZodFieldErrors(error: ZodError): GenerateDraftFieldErrors {
     const rawKey = issue.path[0];
     if (typeof rawKey !== "string") continue;
 
-    const key = rawKey as keyof GeneratePostDraftInput;
+    const allowedKeys = new Set([
+      "topic",
+      "context",
+      "tone",
+      "categoryName",
+      "targetFields",
+    ]);
+
+    if (!allowedKeys.has(rawKey)) continue;
+
+    const key = rawKey as keyof GenerateDraftFieldErrors;
 
     if (!fieldErrors[key]) {
       fieldErrors[key] = [];
@@ -112,14 +130,37 @@ export async function generatePostDraftAction(
   }
 
   try {
-    const input = generatePostDraftInputSchema.parse(rawInput);
+    const input = aiDraftRequestSchema.parse(
+      rawInput,
+    ) as GenerateOrRegeneratePostDraftInput;
 
     const result = await generatePostDraft(input);
-    const formSeed = mapGeneratedDraftToPostFormSeed(result.draft);
+
+    if (result.mode === "full") {
+      const formSeed = mapGeneratedDraftToPostFormSeed(result.draft);
+
+      return {
+        ok: true,
+        mode: "full",
+        data: formSeed,
+        changedFields: [...AI_REGENERABLE_FIELDS],
+        meta: {
+          model: result.model,
+          requestId: result.requestId,
+        },
+      };
+    }
+
+    const formPatch = mapRegeneratedDraftToPostFormPatch(result.draft);
+    const changedFields = Object.keys(formPatch).filter((field) =>
+      AI_REGENERABLE_FIELDS.includes(field as AiRegenerableField),
+    ) as AiRegenerableField[];
 
     return {
       ok: true,
-      data: formSeed,
+      mode: "partial",
+      data: formPatch,
+      changedFields,
       meta: {
         model: result.model,
         requestId: result.requestId,
